@@ -1,0 +1,34 @@
+const fs=require('node:fs'),assert=require('node:assert/strict'),{DatabaseSync}=require('node:sqlite');
+(async()=>{
+ const db=new DatabaseSync(':memory:');db.exec('PRAGMA foreign_keys=ON');for(const f of fs.readdirSync('drizzle').filter(f=>f.endsWith('.sql')).sort())db.exec(fs.readFileSync('drizzle/'+f,'utf8'));
+ const DB={prepare(sql){return{args:[],bind(...args){this.args=args;return this},async all(){return{results:db.prepare(sql).all(...this.args)}},async run(){return{meta:{changes:Number(db.prepare(sql).run(...this.args).changes)}}}}}};
+ const {default:worker}=await import('data:text/javascript;base64,'+fs.readFileSync('dist/server/index.js').toString('base64'));
+ async function call(path,method='GET',body,cookie=''){const r=await worker.fetch(new Request('https://local.test/api/'+path,{method,headers:{'Content-Type':'application/json',...(cookie?{Cookie:cookie}:{})},...(body?{body:JSON.stringify(body)}:{})}),{DB,BUCKET:{delete:async()=>{}}});return{status:r.status,body:await r.json(),cookie:r.headers.get('Set-Cookie')?.split(';')[0]}}
+ const cookies=[];for(const name of ['Seller','Buyer','Outsider']){const r=await call('auth/register','POST',{name,email:name.toLowerCase()+'@example.test',password:'local-test-password-123'});assert.equal(r.status,200);cookies.push(r.cookie)}const [seller,buyer,outsider]=cookies;
+ const created=await call('ads','POST',{title:'Local chat test',description:'Only an in-memory validation fixture.',category:'it',city:'Toshkent shahri',district:'Yunusobod',street:'Amir Temur ko‘chasi',house:'12A',phone:'+998000000000',lat:41.36,lng:69.28},seller);assert.equal(created.status,201);const ad=created.body.ad.id,comments='ads/'+ad+'/comments',start='ads/'+ad+'/conversations';
+ assert.equal((await call(comments)).body.total,0);assert.equal((await call(comments,'POST',{body:'Hello'})).status,401);
+ assert.equal((await call(comments,'POST',{body:' '},buyer)).status,400);assert.equal((await call(comments,'POST',{body:'x'.repeat(1001)},buyer)).status,400);
+ let r=await call(comments,'POST',{body:'  Public question <script>alert(1)</script>  '},buyer);assert.equal(r.status,201);const comment=r.body.comment.id;assert.equal(r.body.comment.body,'Public question <script>alert(1)</script>');assert(r.body.comment.owned);assert(!r.body.comment.is_owner);
+ await call(comments,'POST',{body:'Owner answer'},seller);r=await call(comments);assert.equal(r.body.total,2);assert(r.body.comments.some(c=>c.is_owner));assert(!r.body.comments.some(c=>c.owned));assert(!JSON.stringify(r.body).includes('author_id'));assert(!JSON.stringify(r.body).includes('@example.test'));
+ assert.equal((await call(comments+'/'+comment,'DELETE',null,seller)).status,403);assert.equal((await call(comments+'/'+comment,'DELETE',null,outsider)).status,403);assert.equal((await call(comments+'/'+comment,'DELETE',null,buyer)).status,200);
+ assert.equal((await call(start,'POST',{body:'Hello'})).status,401);assert.equal((await call(start,'POST',{body:'Hello'},seller)).status,400);
+ r=await call(start,'POST',{body:'  Private question  ',seller_id:'forged',buyer_id:'forged'},buyer);assert.equal(r.status,201);const id=r.body.conversation_id,history='conversations/'+id+'/messages';
+ assert.equal((await call(start,'POST',{body:'Second question'},buyer)).body.conversation_id,id);assert.equal(db.prepare('SELECT COUNT(*) AS n FROM conversations').get().n,1);
+ for(const cookie of ['',outsider]){const expected=cookie?404:401;assert.equal((await call(history,'GET',null,cookie)).status,expected);assert.equal((await call(history,'POST',{body:'Intrusion'},cookie)).status,expected);assert.equal((await call('conversations/'+id+'/read','POST',{},cookie)).status,expected)}
+ assert.equal((await call('conversations','GET',null,outsider)).body.conversations.length,0);assert.equal((await call('conversations')).status,401);
+ r=await call('conversations','GET',null,seller);assert.equal(r.body.conversations[0].unread_count,2);assert.equal(r.body.conversations[0].peer_name,'Buyer');assert(!JSON.stringify(r.body).includes('@example.test'));
+ r=await call(history,'GET',null,seller);assert.equal(r.body.messages.length,2);assert(r.body.messages.every(m=>!m.mine));assert(!JSON.stringify(r.body).includes('author_id'));assert(!JSON.stringify(r.body).includes('password'));
+ assert.equal((await call('conversations/'+id+'/read','POST',{},seller)).status,200);assert.equal((await call('conversations','GET',null,seller)).body.conversations[0].unread_count,0);
+ assert.equal((await call(history,'POST',{body:'Seller reply'},seller)).status,201);assert.equal((await call('conversations','GET',null,buyer)).body.conversations[0].unread_count,1);
+ assert.equal((await call(history,'POST',{body:'x'.repeat(2001)},buyer)).status,400);assert.equal((await call(history,'POST',{body:[]},buyer)).status,400);
+ assert.equal((await call(history+'?before=invalid','GET',null,buyer)).status,400);
+ const buyerId=db.prepare("SELECT id FROM users WHERE name='Buyer'").get().id;
+ const insert=db.prepare('INSERT INTO messages (id,conversation_id,author_id,body,created_at) VALUES (?,?,?,?,?)');for(let n=0;n<108;n++)insert.run('fixture-'+String(n).padStart(4,'0'),id,buyerId,'History '+n,1000);
+ const all=[];let cursor='';do{r=await call(history+(cursor?'?before='+encodeURIComponent(cursor):''),'GET',null,buyer);assert.equal(r.status,200);all.push(...r.body.messages.map(m=>m.id));cursor=r.body.next_cursor}while(cursor);assert.equal(all.length,111);assert.equal(new Set(all).size,111);
+ const commenterId=db.prepare("SELECT id FROM users WHERE name='Seller'").get().id;for(let n=0;n<63;n++)db.prepare('INSERT INTO ad_comments (id,ad_id,author_id,body,created_at) VALUES (?,?,?,?,?)').run('comment-'+n.toString().padStart(4,'0'),ad,commenterId,'Public history '+n,1000);
+ const seen=[];cursor='';do{r=await call(comments+(cursor?'?before='+encodeURIComponent(cursor):''));seen.push(...r.body.comments.map(c=>c.id));cursor=r.body.next_cursor}while(cursor);assert.equal(seen.length,64);assert.equal(new Set(seen).size,64);
+ for(let n=0;n<30;n++){r=await call(history,'POST',{body:'Rate check'},buyer);if(r.status===429)break}assert.equal(r.status,429);
+ for(let n=0;n<10;n++){r=await call(comments,'POST',{body:'Rate check'},buyer);if(r.status===429)break}assert.equal(r.status,429);
+ assert.equal((await call('ads/'+ad,'DELETE',null,seller)).status,200);for(const table of ['messages','conversations','ad_comments'])assert.equal(db.prepare('SELECT COUNT(*) AS n FROM '+table).get().n,0);assert.equal((await call(history,'GET',null,buyer)).status,404);
+ console.log('Passed: authenticated public comments, own deletion, server-derived chat participants, private read/reply/read-status access, third-user isolation, reusable conversations, unread counts, input/rate limits, pagination with tied timestamps, and cascading ad deletion.');
+})();

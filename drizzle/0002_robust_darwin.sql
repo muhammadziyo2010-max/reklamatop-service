@@ -1,0 +1,1 @@
+ALTER TABLE `ads` ADD `image_key` text;

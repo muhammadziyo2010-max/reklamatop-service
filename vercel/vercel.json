@@ -1,0 +1,44 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "",
+  "installCommand": "",
+  "outputDirectory": ".",
+  "rewrites": [
+    {
+      "source": "/api/reklamatop-ai",
+      "destination": "/api/reklamatop-ai"
+    },
+    {
+      "source": "/api/:path*",
+      "destination": "https://reklamatop-service.zippypoppy41.chatgpt.site/api/:path*"
+    },
+    {
+      "source": "/admin",
+      "destination": "/index.html"
+    }
+  ],
+  "redirects": [
+    {
+      "source": "/admin/",
+      "destination": "/admin",
+      "permanent": false
+    }
+  ],
+  "headers": [
+    {
+      "source": "/api/:path*",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "private, no-store"
+        }
+      ]
+    }
+  ],
+  "functions": {
+    "api/reklamatop-ai.js": {
+      "maxDuration": 30
+    }
+  }
+}

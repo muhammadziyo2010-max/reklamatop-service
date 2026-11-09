@@ -1,0 +1,46 @@
+const fs=require('node:fs'),assert=require('node:assert/strict'),{DatabaseSync}=require('node:sqlite');
+(async()=>{
+ const db=new DatabaseSync(':memory:');db.exec('PRAGMA foreign_keys=ON');for(const f of fs.readdirSync('drizzle').filter(f=>f.endsWith('.sql')).sort())db.exec(fs.readFileSync('drizzle/'+f,'utf8'));
+ const DB={prepare(sql){return{sql,args:[],bind(...args){this.args=args;return this},async all(){return{results:db.prepare(sql).all(...this.args)}},async run(){return{meta:{changes:Number(db.prepare(sql).run(...this.args).changes)}}}}}};
+ DB.batch=async statements=>{db.exec('BEGIN');try{const out=statements.map(s=>({meta:{changes:Number(db.prepare(s.sql).run(...s.args).changes)}}));db.exec('COMMIT');return out}catch(e){db.exec('ROLLBACK');throw e}};
+ const removed=[];const BUCKET={delete:async k=>removed.push(k),resumeMultipartUpload(){return{abort:async()=>{}}}};
+ const {default:worker}=await import('data:text/javascript;base64,'+fs.readFileSync('dist/server/index.js').toString('base64'));
+ const token='local-only-admin-activation-code-123456789';const env={DB,BUCKET,ADMIN_SETUP_TOKEN_HASH:require('node:crypto').createHash('sha256').update(token).digest('hex')};
+ async function call(path,method='GET',body,cookie='',extra={}){const r=await worker.fetch(new Request('https://local.test/api/'+path,{method,headers:{'Content-Type':'application/json',...(cookie?{Cookie:cookie}:{}),...extra},...(body?{body:JSON.stringify(body)}:{})}),env);return{status:r.status,body:await r.json(),cookie:r.headers.get('Set-Cookie')?.split(';')[0]}}
+ const accounts=[];for(const name of ['Admin Test','Member Test']){const r=await call('auth/register','POST',{name,email:name.replace(' ','').toLowerCase()+'@example.test',password:'local-test-password-123'});assert.equal(r.status,200);accounts.push(r)}const [owner,member]=accounts;
+ for(const path of ['session','stats','users','ads','comments','audit'])assert.equal((await call('admin/'+path)).status,401);
+ assert.equal((await call('admin/session','GET',null,owner.cookie)).body.setup_available,true);
+ for(const path of ['stats','users','ads','comments','audit'])assert.equal((await call('admin/'+path,'GET',null,member.cookie)).status,403);
+ assert.equal((await call('admin/claim','POST',{token:'wrong-code-value-123456789'},member.cookie)).status,403);
+ assert.equal((await call('admin/claim','POST',{token},owner.cookie,{'Origin':'https://evil.test'})).status,403);
+ assert.equal((await call('admin/claim','POST',{token},owner.cookie)).status,200);
+ assert.equal((await call('admin/claim','POST',{token},member.cookie)).status,409);
+ assert.equal((await call('admin/session','GET',null,member.cookie)).body.is_admin,false);assert.equal((await call('admin/session','GET',null,owner.cookie)).body.is_admin,true);
+ const password='local-test-password-123';const login=await call('auth/login','POST',{email:'admintest@example.test',password});assert.equal((await call('admin/session','GET',null,login.cookie)).body.is_admin,true);
+ const ad={title:'Admin moderation test',description:'Synthetic listing in a disposable in-memory database.',category:'it',city:'Toshkent shahri',district:'Yunusobod',street:'Amir Temur ko‘chasi',phone:'+998000000000',lat:41.36,lng:69.28};
+ const r=await call('ads','POST',ad,member.cookie);assert.equal(r.status,201);const id=r.body.ad.id;
+ const comment=await call('ads/'+id+'/comments','POST',{body:'Test public comment'},member.cookie);assert.equal(comment.status,201);
+ const chat=await call('ads/'+id+'/conversations','POST',{body:'Private message must never be in admin lists'},owner.cookie);assert.equal(chat.status,201);
+ db.prepare('UPDATE ads SET image_key=?,video_key=?,video_size=? WHERE id=?').run('test-photo','test-video',12000,id);
+ db.prepare('INSERT INTO video_uploads (id,ad_id,owner_id,storage_key,r2_id,mime,size,received,parts,status,expires_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run('test-upload',id,member.body.user.id,'pending-video','multipart','video/mp4',200,12,'[]','uploading',Date.now()+60000);
+ let result=await call('admin/stats','GET',null,owner.cookie);assert.equal(result.body.stats.ads,1);assert.equal(result.body.stats.users,2);assert.equal(result.body.stats.comments,1);assert.equal(result.body.stats.conversations,1);assert.equal(result.body.stats.video_bytes,12000);assert.equal(result.body.categories[0].count,1);
+ result=await call('admin/users','GET',null,owner.cookie);assert.equal(result.body.total,2);assert(result.body.items.some(u=>u.is_admin));const serialized=JSON.stringify(result.body);for(const forbidden of ['password_hash','salt','token_hash','Private message'])assert(!serialized.includes(forbidden));
+ result=await call('admin/ads?q='+encodeURIComponent('moderation'),'GET',null,owner.cookie);assert.equal(result.body.items.length,1);assert(result.body.items[0].image_url);assert(result.body.items[0].has_video);assert(!('image_key' in result.body.items[0]));assert(!JSON.stringify(result.body).includes('owner_id'));
+ assert.equal((await call('admin/ads?q='+encodeURIComponent("%' OR 1=1 --"),'GET',null,owner.cookie)).body.total,0);
+ assert.equal((await call('admin/ads?offset=-1','GET',null,owner.cookie)).status,400);
+ assert.equal((await call('admin/comments','GET',null,owner.cookie)).body.items[0].body,'Test public comment');
+ assert.equal((await call('admin/comments/'+comment.body.comment.id,'DELETE',null,member.cookie)).status,403);
+ assert.equal((await call('admin/comments/'+comment.body.comment.id,'DELETE',null,owner.cookie)).status,200);
+ assert.equal((await call('admin/ads/'+id,'DELETE',null,member.cookie)).status,403);
+ db.exec("CREATE TRIGGER prevent_test_delete BEFORE DELETE ON ads BEGIN SELECT RAISE(ABORT, 'synthetic rollback test'); END");
+ assert.equal((await call('admin/ads/'+id,'DELETE',null,owner.cookie)).status,500);assert.equal(db.prepare("SELECT COUNT(*) AS n FROM admin_audit WHERE action='ad_deleted'").get().n,0);assert.equal(removed.length,0);db.exec('DROP TRIGGER prevent_test_delete');
+ assert.equal((await call('admin/ads/'+id,'DELETE',null,owner.cookie)).status,200);
+ assert.deepEqual(removed.sort(),['test-photo','test-video']);for(const table of ['ads','ad_comments','conversations','messages','video_uploads'])assert.equal(db.prepare('SELECT COUNT(*) AS n FROM '+table).get().n,0);
+ result=await call('admin/audit','GET',null,owner.cookie);assert.equal(result.body.total,3);assert(result.body.items.some(i=>i.action==='ad_deleted'));assert(!JSON.stringify(result.body).includes('Private message'));
+ // Pagination remains bounded and search treats SQL wildcard characters literally.
+ const insert=db.prepare('INSERT INTO users (id,name,email,password_hash,salt,created_at) VALUES (?,?,?,?,?,?)');for(let n=0;n<27;n++)insert.run('fixture-'+n,'Extra '+n,'fixture'+n+'@example.test','unusable','unusable',1000+n);
+ result=await call('admin/users','GET',null,owner.cookie);assert.equal(result.body.items.length,25);assert(result.body.has_more);const page=await call('admin/users?offset=25','GET',null,owner.cookie);assert.equal(page.body.items.length,4);assert(!page.body.has_more);assert(!page.body.items.some(b=>result.body.items.some(a=>a.id===b.id)));
+ const pageResponse=await worker.fetch(new Request('https://local.test/admin'),env);assert.equal(pageResponse.status,200);assert((await pageResponse.text()).includes('admin.js'));
+ await call('auth/logout','POST',{},owner.cookie);assert.equal((await call('admin/stats','GET',null,owner.cookie)).status,401);
+ console.log('Passed: one-time admin claim, origin protection, server-side role checks, member isolation, persistent admin login, stats, escaped search, pagination, safe user projections, public-comment moderation, media cleanup/cascading deletion, audit log, and no private-chat content exposure.');
+})();

@@ -1,0 +1,7 @@
+dist/
+site.tar.gz
+node_modules/
+data/
+.openai/*.log
+
+.vercel-staging/
