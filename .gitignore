@@ -5,3 +5,6 @@ data/
 .openai/*.log
 
 .vercel-staging/
+.env
+.env.local
+server.backup.cjs

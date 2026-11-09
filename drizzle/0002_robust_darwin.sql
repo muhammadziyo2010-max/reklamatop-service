@@ -1,1 +1,1 @@
-ALTER TABLE `ads` ADD `image_key` text;
+ALTER TABLE `ads` ADD `image_key` text;A
