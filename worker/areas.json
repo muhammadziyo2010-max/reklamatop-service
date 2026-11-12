@@ -1,0 +1,74 @@
+{
+  "Yunusobod": {
+    "lat": 41.3661222,
+    "lng": 69.2886649,
+    "name": "Yunusabad",
+    "zoom": 13
+  },
+  "Chilonzor": {
+    "lat": 41.2847255,
+    "lng": 69.2152192,
+    "name": "Chilanzar District",
+    "zoom": 13
+  },
+  "Mirzo Ulugbek": {
+    "lat": 41.3331424,
+    "lng": 69.3498882,
+    "name": "Mirzo Ulugbek District",
+    "zoom": 13
+  },
+  "Yakkasaroy": {
+    "lat": 41.2845603,
+    "lng": 69.2529828,
+    "name": "Yakkasaray district",
+    "zoom": 13
+  },
+  "Yashnobod": {
+    "lat": 41.2882137,
+    "lng": 69.3308651,
+    "name": "Yashnabad District",
+    "zoom": 13
+  },
+  "Mirobod": {
+    "lat": 41.2826997,
+    "lng": 69.2932512,
+    "name": "Mirabad District",
+    "zoom": 13
+  },
+  "Olmazor": {
+    "lat": 41.362149,
+    "lng": 69.2266019,
+    "name": "Almazar district",
+    "zoom": 13
+  },
+  "Sergeli": {
+    "lat": 41.2147897,
+    "lng": 69.2122771,
+    "name": "Sergeli",
+    "zoom": 13
+  },
+  "Bektemir": {
+    "lat": 41.2281105,
+    "lng": 69.3205686,
+    "name": "Bektemir District",
+    "zoom": 13
+  },
+  "Shayxontohur": {
+    "lat": 41.3238485,
+    "lng": 69.2034233,
+    "name": "Shaykhantahur District",
+    "zoom": 13
+  },
+  "Uchtepa": {
+    "lat": 41.3043648,
+    "lng": 69.1603134,
+    "name": "Uchtepa Tumani",
+    "zoom": 13
+  },
+  "Yangihayot": {
+    "lat": 41.1888603,
+    "lng": 69.2152403,
+    "name": "Yangi hayot Tumani",
+    "zoom": 13
+  }
+}

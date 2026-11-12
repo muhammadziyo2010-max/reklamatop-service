@@ -1,0 +1,15 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+(async()=>{
+const source=fs.readFileSync('public/app.js','utf8'),tasks=new Map();let n=0,requests=[];const districts={innerHTML:''};
+const context={AbortController,URLSearchParams,lang:'uz',places:[['Toshkent shahri',41.311,69.279,['Yunusobod','Chilonzor']]],esc:v=>v,t:k=>k,$:()=>districts,document:{createElement:()=>({setAttribute(){},textContent:''})},setTimeout:f=>{tasks.set(++n,f);return n},clearTimeout:id=>tasks.delete(id),api:(path,options)=>new Promise(resolve=>requests.push({path,options,resolve}))};vm.createContext(context);vm.runInContext(source.slice(source.indexOf('const areaLabels='),source.indexOf('\nfunction openAd('))+';this.setup=setupAreaMap;',context);
+const field=()=>({value:'',events:{},addEventListener(name,fn){this.events[name]=fn}}),form={elements:Object.fromEntries(['city','district','street','house','lat','lng'].map(k=>[k,field()]))};const f=form.elements;const map={el:{isConnected:true,after(){}},center:[0,0],pin:[1,1],zoom:5,draw(){},setAddress(address,zoom){this.address=address;this.zoom=zoom},destroy(){this.dead=true}};context.setup(form,map);
+f.lat.value='1';f.lng.value='1';f.city.value='Toshkent shahri';f.city.events.input();assert.equal(f.lat.value,'');assert.equal(map.zoom,11);assert(map.address.includes('Toshkent shahri'));assert(districts.innerHTML.includes('Yunusobod'));
+f.district.value='Yunusobod';f.district.events.input();assert(map.address.includes('Yunusobod'));assert.equal(map.zoom,13);
+f.street.value='Bodomzor mahallasi';f.street.events.input();assert(map.address.includes('Bodomzor mahallasi'));assert.equal(map.zoom,16);
+const run=[...tasks.values()].at(-1)();assert.equal(requests.length,1);assert(requests[0].path.includes('Bodomzor'));
+map.cancelLookup();map.center=[41.35,69.29];requests[0].resolve({lat:0,lng:0,precision:'house',zoom:18});await run;assert.equal(map.center[0],41.35);assert.equal(f.lat.value,'');
+f.city.value='Samarqand';f.city.events.input();assert.equal(f.district.value,'');assert.equal(f.street.value,'');assert(!map.address.includes('Bodomzor'));map.destroy();assert.equal(map.dead,true);
+const formMarkup=source.slice(source.indexOf('function openAdd'),source.indexOf('const areaLabels='));assert.match(formMarkup,/name="lat" type="hidden"/);assert.match(formMarkup,/name="lng" type="hidden"/);assert.doesNotMatch(formMarkup,/t\('coordinateHelp'\)/);
+const mapMarkup=source.slice(source.indexOf('class LocationMap'),source.indexOf('const addressMapLabels'));assert.doesNotMatch(mapMarkup, /<iframe[^>]*(?:inert|tabindex="-1")/);assert.match(mapMarkup, /<iframe[^>]*allowfullscreen/);assert.doesNotMatch(fs.readFileSync('public/glass.css','utf8'), /\.google-map-pane iframe\{[^}]*pointer-events:none/);
+console.log('Passed: city/district/neighborhood hierarchy, zoom levels, hidden coordinates, dependent-field reset and stale lookup cancellation after manual selection.');
+})().catch(e=>{console.error(e);process.exit(1)});

@@ -1,0 +1,13 @@
+dist/
+site.tar.gz
+node_modules/
+data/
+.openai/*.log
+
+.vercel-staging/
+
+.vercel-static/
+.openai/
+.env
+.env.*
+!.env.example
